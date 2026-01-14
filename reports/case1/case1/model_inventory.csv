@@ -1,0 +1,3 @@
+system_id,name,domain,ai_type,owner_role,decision_criticality,automation_level,data_sensitivity,deployment_mode,external_dependencies,updated_at
+26d71134-bea5-48b6-a5fb-4e87633fb522,Risk_Manager_001,asdasdasdasd,ML,asdsadsad,LOW,ADVISORY,PUBLIC,BATCH,dadasds,2026-01-14T14:54:47.662605+00:00
+82e16ad9-db67-4105-9bc5-e3f78eece9e0,Risk_Manager_001 ad sa dasd,asdasdasdasd,ML,asdsadsad,LOW,ADVISORY,PUBLIC,BATCH,dadasds,2026-01-14T14:55:01.994734+00:00

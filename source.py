@@ -1,13 +1,14 @@
-import sqlite3
+from enum import Enum
+from typing import Any, List, Dict, Optional
+import zipfile
+import os
 import json
 import uuid
 import datetime
 import hashlib
 import pandas as pd
-from enum import Enum
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field, ValidationError
-import os # Import the os module
+from pydantic import BaseModel, Field, ValidationError, model_validator
+import threading
 
 # --- Configuration for Tiering and Controls ---
 # Centralized configuration as a Python dictionary for easy access and snapshotting
@@ -32,7 +33,7 @@ CONFIG = {
         "0_deps": 0,
         "1_2_deps": 2,
         "3_plus_deps": 4,
-        "opaque_vendor_bonus": 2, # Added if any dependency matches opaque keywords
+        "opaque_vendor_bonus": 2,  # Added if any dependency matches opaque keywords
         "opaque_keywords": ["openai", "anthropic", "vendor", "3rd-party", "external"]
     },
     "default_required_controls": {
@@ -60,15 +61,17 @@ CONFIG = {
             "Periodic spot checks / lightweight monitoring"
         ]
     },
-    "random_seed": None # Explicitly None if not used, or set to a fixed int for determinism
+    "random_seed": None  # Explicitly None if not used, or set to a fixed int for determinism
 }
 
 # --- Pydantic Data Models (Schemas) ---
+
 
 class AIType(str, Enum):
     ML = "ML"
     LLM = "LLM"
     AGENT = "AGENT"
+
 
 class DeploymentMode(str, Enum):
     BATCH = "BATCH"
@@ -76,15 +79,18 @@ class DeploymentMode(str, Enum):
     HUMAN_IN_LOOP = "HUMAN_IN_LOOP"
     INTERNAL_ONLY = "INTERNAL_ONLY"
 
+
 class DecisionCriticality(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
 
+
 class AutomationLevel(str, Enum):
     ADVISORY = "ADVISORY"
     HUMAN_APPROVAL = "HUMAN_APPROVAL"
     FULLY_AUTOMATED = "FULLY_AUTOMATED"
+
 
 class DataSensitivity(str, Enum):
     PUBLIC = "PUBLIC"
@@ -92,10 +98,12 @@ class DataSensitivity(str, Enum):
     CONFIDENTIAL = "CONFIDENTIAL"
     REGULATED_PII = "REGULATED_PII"
 
+
 class RiskTier(str, Enum):
     TIER_1 = "TIER_1"
     TIER_2 = "TIER_2"
     TIER_3 = "TIER_3"
+
 
 class LifecyclePhase(str, Enum):
     INCEPTION = "INCEPTION"
@@ -106,6 +114,7 @@ class LifecyclePhase(str, Enum):
     OPERATIONS = "OPERATIONS"
     CHANGE_RETIRE = "CHANGE_RETIRE"
 
+
 class RiskVector(str, Enum):
     FUNCTIONAL = "FUNCTIONAL"
     ROBUSTNESS = "ROBUSTNESS"
@@ -115,6 +124,7 @@ class RiskVector(str, Enum):
     OPERATIONAL = "OPERATIONAL"
     VENDOR_OPACITY = "VENDOR_OPACITY"
     COMPLIANCE = "COMPLIANCE"
+
 
 class SystemMetadata(BaseModel):
     system_id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -128,7 +138,9 @@ class SystemMetadata(BaseModel):
     automation_level: AutomationLevel
     data_sensitivity: DataSensitivity
     external_dependencies: List[str] = Field(default_factory=list)
-    updated_at: str = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.datetime.now(
+        datetime.timezone.utc).isoformat())
+
 
 class TieringResult(BaseModel):
     system_id: uuid.UUID
@@ -137,8 +149,10 @@ class TieringResult(BaseModel):
     score_breakdown: Dict[str, int]
     justification: str = ""
     required_controls: List[str] = Field(default_factory=list)
-    computed_at: str = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
+    computed_at: str = Field(default_factory=lambda: datetime.datetime.now(
+        datetime.timezone.utc).isoformat())
     scoring_version: str = CONFIG["scoring_version"]
+
 
 class LifecycleRiskEntry(BaseModel):
     risk_id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -148,65 +162,42 @@ class LifecycleRiskEntry(BaseModel):
     risk_statement: str
     impact: int = Field(..., ge=1, le=5)
     likelihood: int = Field(..., ge=1, le=5)
-    severity: int # Will be calculated: impact * likelihood
+    severity: int = 0  # Will be calculated: impact * likelihood
     mitigation: str = ""
     owner_role: str
     evidence_links: List[str] = Field(default_factory=list)
-    created_at: str = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.datetime.now(
+        datetime.timezone.utc).isoformat())
 
-    def __init__(self, **data: Any):
-        super().__init__(**data)
+    @model_validator(mode='after')
+    def calculate_severity(self) -> 'LifecycleRiskEntry':
+        """Calculate severity as impact * likelihood after validation"""
         self.severity = self.impact * self.likelihood
+        return self
 
-# --- SQLite Database Functions ---
-DATABASE_PATH = "reports/labs.sqlite"
 
-def get_db_connection():
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row # Allows accessing columns by name
-    return conn
+# --- In-Memory Storage with Thread Safety ---
+# Using module-level dictionaries with locks for thread-safe access in multi-user Streamlit apps
+SYSTEMS_STORE: Dict[uuid.UUID, SystemMetadata] = {}
+TIERING_STORE: Dict[uuid.UUID, TieringResult] = {}
+LIFECYCLE_RISKS_STORE: Dict[uuid.UUID, LifecycleRiskEntry] = {}
+
+# Thread locks for each store to ensure thread-safe operations
+_systems_lock = threading.RLock()
+_tiering_lock = threading.RLock()
+_risks_lock = threading.RLock()
+
 
 def create_tables():
-    # Ensure the directory for the database file exists
-    db_dir = os.path.dirname(DATABASE_PATH)
-    if db_dir and not os.path.exists(db_dir):
-        os.makedirs(db_dir, exist_ok=True) # Create directory if it doesn't exist
+    """Initialize in-memory storage (no-op, kept for API compatibility)."""
+    pass
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS systems (
-            system_id TEXT PRIMARY KEY,
-            json TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tiering (
-            system_id TEXT PRIMARY KEY,
-            json TEXT NOT NULL,
-            computed_at TEXT NOT NULL
-        );
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS lifecycle_risks (
-            risk_id TEXT PRIMARY KEY,
-            system_id TEXT NOT NULL,
-            json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (system_id) REFERENCES systems (system_id) ON DELETE CASCADE
-        );
-    """)
-    conn.commit()
-    conn.close()
 
-# Initialize database
-create_tables()
-
-print("Environment setup complete: Libraries installed, Pydantic schemas defined, and SQLite tables created.")
+print("Environment setup complete: Libraries installed, Pydantic schemas defined, and thread-safe in-memory storage initialized.")
 # --- Inventory CRUD Operations ---
 
-def load_sample_systems_data(filepath: str = "data/sample_case1_systems.json"):
+
+def load_sample_systems_data(filepath: str = "data/sample_case1_systems.json", stores=None):
     """
     Loads sample system data from a JSON file and inserts it into the inventory.
     """
@@ -226,7 +217,6 @@ def load_sample_systems_data(filepath: str = "data/sample_case1_systems.json"):
         },
         {
             "system_id": str(uuid.uuid4()),
-            "name": "Content Generation LLM",
             "description": "Generates marketing content based on prompts.",
             "domain": "Marketing",
             "ai_type": "LLM",
@@ -235,7 +225,8 @@ def load_sample_systems_data(filepath: str = "data/sample_case1_systems.json"):
             "decision_criticality": "MEDIUM",
             "automation_level": "HUMAN_APPROVAL",
             "data_sensitivity": "INTERNAL",
-            "external_dependencies": ["OpenAI API (vendor)"] # Example of opaque vendor
+            # Example of opaque vendor
+            "external_dependencies": ["OpenAI API (vendor)"]
         },
         {
             "system_id": str(uuid.uuid4()),
@@ -261,91 +252,98 @@ def load_sample_systems_data(filepath: str = "data/sample_case1_systems.json"):
             # Ensure system_id is a UUID object before passing to Pydantic
             item['system_id'] = uuid.UUID(item['system_id'])
             system = SystemMetadata(**item)
-            add_system(system)
+            add_system(system, stores)
             print(f"Loaded: {system.name}")
         except ValidationError as e:
-            print(f"Validation error loading sample system {item.get('name', 'Unknown')}: {e}")
-        except sqlite3.IntegrityError:
-            print(f"System with ID {item.get('system_id', 'Unknown')} already exists. Skipping.")
+            print(
+                f"Validation error loading sample system {item.get('name', 'Unknown')}: {e}")
     print("-------------------------------------------\n")
 
-def add_system(system_metadata: SystemMetadata):
-    """Adds a new AI system to the inventory."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+
+def add_system(system_metadata: SystemMetadata, stores=None):
+    """Adds a new AI system to the inventory (thread-safe)."""
+    if stores is None:
+        stores = {'systems': SYSTEMS_STORE}
+    with _systems_lock:
+        stores['systems'][system_metadata.system_id] = system_metadata
+
+
+def get_system(system_id: uuid.UUID, stores=None) -> Optional[SystemMetadata]:
+    """Retrieves an AI system by its ID (thread-safe)."""
+    if stores is None:
+        stores = {'systems': SYSTEMS_STORE}
+    with _systems_lock:
+        return stores['systems'].get(system_id)
+
+
+def get_all_systems(stores=None) -> List[SystemMetadata]:
+    """Retrieves all AI systems in the inventory (thread-safe)."""
+    if stores is None:
+        stores = {'systems': SYSTEMS_STORE}
+    with _systems_lock:
+        return list(stores['systems'].values())
+
+
+def update_system(system_id: uuid.UUID, updates: Dict[str, Any], stores=None):
+    """Updates an existing AI system's metadata (thread-safe)."""
+    if stores is None:
+        stores = {'systems': SYSTEMS_STORE}
+    with _systems_lock:
+        current_system = stores['systems'].get(system_id)
+        if not current_system:
+            print(f"Error: System with ID {system_id} not found for update.")
+            return False
+
+        updated_data = current_system.model_dump()
+        updated_data.update(updates)
+        updated_data['updated_at'] = datetime.datetime.now(
+            datetime.timezone.utc).isoformat()
+
+        try:
+            updated_system = SystemMetadata(**updated_data)
+            stores['systems'][system_id] = updated_system
+            return True
+        except ValidationError as e:
+            print(f"Validation error updating system {system_id}: {e}")
+            return False
+        except Exception as e:
+            print(f"An unexpected error occurred during update: {e}")
+            return False
+
+
+def delete_system(system_id: uuid.UUID, stores=None):
+    """Deletes an AI system from the inventory and all related data (thread-safe)."""
+    if stores is None:
+        stores = {'systems': SYSTEMS_STORE,
+                  'tiering': TIERING_STORE, 'risks': LIFECYCLE_RISKS_STORE}
     try:
-        cursor.execute(
-            "INSERT INTO systems (system_id, json, updated_at) VALUES (?, ?, ?)",
-            (str(system_metadata.system_id), system_metadata.json(), system_metadata.updated_at)
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        print(f"Error: System with ID {system_metadata.system_id} already exists.")
-    finally:
-        conn.close()
+        # Use all locks to ensure atomicity of the multi-store operation
+        with _systems_lock, _tiering_lock, _risks_lock:
+            # Delete related lifecycle risks
+            risks_to_delete = [risk_id for risk_id, risk in stores['risks'].items()
+                               if risk.system_id == system_id]
+            for risk_id in risks_to_delete:
+                del stores['risks'][risk_id]
 
-def get_system(system_id: uuid.UUID) -> Optional[SystemMetadata]:
-    """Retrieves an AI system by its ID."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT json FROM systems WHERE system_id = ?", (str(system_id),))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return SystemMetadata.parse_raw(row['json'])
-    return None
+            # Delete tiering result
+            if system_id in stores['tiering']:
+                del stores['tiering'][system_id]
 
-def get_all_systems() -> List[SystemMetadata]:
-    """Retrieves all AI systems in the inventory."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT json FROM systems")
-    rows = cursor.fetchall()
-    conn.close()
-    return [SystemMetadata.parse_raw(row['json']) for row in rows]
-
-def update_system(system_id: uuid.UUID, updates: Dict[str, Any]):
-    """Updates an existing AI system's metadata."""
-    current_system = get_system(system_id)
-    if not current_system:
-        print(f"Error: System with ID {system_id} not found for update.")
-        return False
-
-    updated_data = current_system.dict()
-    updated_data.update(updates)
-    updated_data['updated_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-    try:
-        updated_system = SystemMetadata(**updated_data)
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE systems SET json = ?, updated_at = ? WHERE system_id = ?",
-            (updated_system.json(), updated_system.updated_at, str(system_id))
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except ValidationError as e:
-        print(f"Validation error updating system {system_id}: {e}")
-        return False
+            # Delete the system itself
+            if system_id in stores['systems']:
+                del stores['systems'][system_id]
+                return True
+            else:
+                raise Exception(f"System {system_id} not found")
     except Exception as e:
-        print(f"An unexpected error occurred during update: {e}")
-        return False
-
-def delete_system(system_id: uuid.UUID):
-    """Deletes an AI system from the inventory."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM systems WHERE system_id = ?", (str(system_id),))
-    conn.commit()
-    conn.close()
+        raise Exception(f"Failed to delete system: {e}")
 
 # --- Execution ---
 
+
 # 1. Load sample systems
 # Simulating the data/sample_case1_systems.json content directly as a list of dicts.
-load_sample_systems_data()
+# load_sample_systems_data()
 
 # 2. Register "ApertureMind Assist"
 aperture_mind_assist_id = uuid.uuid4()
@@ -360,20 +358,23 @@ aperture_mind_assist = SystemMetadata(
     decision_criticality=DecisionCriticality.MEDIUM,
     automation_level=AutomationLevel.HUMAN_APPROVAL,
     data_sensitivity=DataSensitivity.CONFIDENTIAL,
-    external_dependencies=["Anthropic Claude API (vendor)", "Internal CRM API", "Knowledge Base API"]
+    external_dependencies=[
+        "Anthropic Claude API (vendor)", "Internal CRM API", "Knowledge Base API"]
 )
-add_system(aperture_mind_assist)
+# add_system(aperture_mind_assist)
 
-# 3. Retrieve and display all systems
-print("--- Current AI System Inventory ---")
-all_systems = get_all_systems()
-for system in all_systems:
-    print(f"ID: {system.system_id}, Name: {system.name}, Type: {system.ai_type}, Criticality: {system.decision_criticality}")
-print("-----------------------------------")
+# # 3. Retrieve and display all systems
+# print("--- Current AI System Inventory ---")
+# all_systems = get_all_systems()
+# for system in all_systems:
+#     print(f"ID: {system.system_id}, Name: {system.name}, Type: {system.ai_type}, Criticality: {system.decision_criticality}")
+# print("-----------------------------------")
 
-# 4. Example: Update a system (e.g., description for ApertureMind Assist)
-update_system(aperture_mind_assist_id, {"description": "Enhanced LLM agent for internal customer support, handling a wider range of queries."})
+# # 4. Example: Update a system (e.g., description for ApertureMind Assist)
+# update_system(aperture_mind_assist_id, {
+#               "description": "Enhanced LLM agent for internal customer support, handling a wider range of queries."})
 # --- Risk Tiering Functions ---
+
 
 def calculate_risk_tier(system_metadata: SystemMetadata) -> TieringResult:
     """
@@ -385,8 +386,10 @@ def calculate_risk_tier(system_metadata: SystemMetadata) -> TieringResult:
 
     # Map dimensions to points
     for dim, mappings in CONFIG["point_mappings"].items():
-        attr_value = getattr(system_metadata, dim).value if isinstance(getattr(system_metadata, dim), Enum) else getattr(system_metadata, dim)
-        score = mappings.get(attr_value, 0) # Default to 0 if value not found, should not happen with Pydantic Enums
+        attr_value = getattr(system_metadata, dim).value if isinstance(
+            getattr(system_metadata, dim), Enum) else getattr(system_metadata, dim)
+        # Default to 0 if value not found, should not happen with Pydantic Enums
+        score = mappings.get(attr_value, 0)
         total_score += score
         score_breakdown[dim] = score
 
@@ -397,14 +400,14 @@ def calculate_risk_tier(system_metadata: SystemMetadata) -> TieringResult:
         dep_score = CONFIG["external_dependencies_scoring"]["0_deps"]
     elif 1 <= dep_count <= 2:
         dep_score = CONFIG["external_dependencies_scoring"]["1_2_deps"]
-    else: # dep_count >= 3
+    else:  # dep_count >= 3
         dep_score = CONFIG["external_dependencies_scoring"]["3_plus_deps"]
 
     # Check for opaque vendors
     for dep in system_metadata.external_dependencies:
         if any(keyword in dep.lower() for keyword in CONFIG["external_dependencies_scoring"]["opaque_keywords"]):
             dep_score += CONFIG["external_dependencies_scoring"]["opaque_vendor_bonus"]
-            break # Only add bonus once
+            break  # Only add bonus once
 
     total_score += dep_score
     score_breakdown["external_dependencies"] = dep_score
@@ -434,272 +437,135 @@ def calculate_risk_tier(system_metadata: SystemMetadata) -> TieringResult:
         required_controls=required_controls
     )
 
-def save_tiering_result(tiering_result: TieringResult):
-    """Saves a tiering result for an AI system, updating if already exists."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # Use UPSERT (OR REPLACE) to handle updates if tiering already exists for the system_id
-    cursor.execute(
-        "INSERT OR REPLACE INTO tiering (system_id, json, computed_at) VALUES (?, ?, ?)",
-        (str(tiering_result.system_id), tiering_result.json(), tiering_result.computed_at)
-    )
-    conn.commit()
-    conn.close()
 
-def get_tiering_result(system_id: uuid.UUID) -> Optional[TieringResult]:
-    """Retrieves a tiering result by system ID."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT json FROM tiering WHERE system_id = ?", (str(system_id),))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return TieringResult.parse_raw(row['json'])
-    return None
+def save_tiering_result(tiering_result: TieringResult, stores=None):
+    """Saves a tiering result for an AI system, updating if already exists (thread-safe)."""
+    if stores is None:
+        stores = {'tiering': TIERING_STORE}
+    with _tiering_lock:
+        stores['tiering'][tiering_result.system_id] = tiering_result
+
+
+def get_tiering_result(system_id: uuid.UUID, stores=None) -> Optional[TieringResult]:
+    """Retrieves a tiering result by system ID (thread-safe)."""
+    if stores is None:
+        stores = {'tiering': TIERING_STORE}
+    with _tiering_lock:
+        return stores['tiering'].get(system_id)
 
 # --- Execution ---
+
 
 # 1. Retrieve ApertureMind Assist system metadata
-aperture_mind_system = get_system(aperture_mind_assist_id)
-if aperture_mind_system:
-    # 2. Calculate its risk tier
-    tiering_result = calculate_risk_tier(aperture_mind_system)
+# aperture_mind_system = get_system(aperture_mind_assist_id)
+# if aperture_mind_system:
+#     # 2. Calculate its risk tier
+#     tiering_result = calculate_risk_tier(aperture_mind_system)
 
-    # 3. Display the results
-    print(f"--- Risk Tiering for '{aperture_mind_system.name}' ---")
-    print(f"Total Score: {tiering_result.total_score}")
-    print(f"Assigned Risk Tier: {tiering_result.risk_tier.value}")
-    print("Score Breakdown:")
-    for dim, score in tiering_result.score_breakdown.items():
-        print(f"  - {dim.replace('_', ' ').title()}: {score} points")
-    print(f"\nJustification: {tiering_result.justification}")
-    print("Default Required Controls:")
-    for control in tiering_result.required_controls:
-        print(f"  - {control}")
+#     # 3. Display the results
+#     print(f"--- Risk Tiering for '{aperture_mind_system.name}' ---")
+#     print(f"Total Score: {tiering_result.total_score}")
+#     print(f"Assigned Risk Tier: {tiering_result.risk_tier.value}")
+#     print("Score Breakdown:")
+#     for dim, score in tiering_result.score_breakdown.items():
+#         print(f"  - {dim.replace('_', ' ').title()}: {score} points")
+#     print(f"\nJustification: {tiering_result.justification}")
+#     print("Default Required Controls:")
+#     for control in tiering_result.required_controls:
+#         print(f"  - {control}")
 
-    # 4. Save the tiering result (which includes default controls and justification)
-    save_tiering_result(tiering_result)
-    print("\nRisk tiering result saved to database.")
+#     # 4. Save the tiering result (which includes default controls and justification)
+#     save_tiering_result(tiering_result)
+#     print("\nRisk tiering result saved to in-memory storage.")
 
-    # 5. Example: Alex might want to customize controls or justification
-    # For instance, add a specific custom control for LLMs.
-    custom_controls = tiering_result.required_controls + ["Specific LLM prompt injection testing protocol"]
-    custom_justification = tiering_result.justification + " Added specific LLM controls."
+#     # 5. Example: Alex might want to customize controls or justification
+#     # For instance, add a specific custom control for LLMs.
+#     custom_controls = tiering_result.required_controls + \
+#         ["Specific LLM prompt injection testing protocol"]
+#     custom_justification = tiering_result.justification + \
+#         " Added specific LLM controls."
 
-    updated_tiering_result = tiering_result.copy(update={
-        "required_controls": custom_controls,
-        "justification": custom_justification,
-        "computed_at": datetime.datetime.now(datetime.timezone.utc).isoformat() # Update timestamp
-    })
-    save_tiering_result(updated_tiering_result)
-    print("\nRisk tiering result updated with custom controls and justification.")
+#     updated_tiering_result = tiering_result.copy(update={
+#         "required_controls": custom_controls,
+#         "justification": custom_justification,
+#         # Update timestamp
+#         "computed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+#     })
+#     save_tiering_result(updated_tiering_result)
+#     print("\nRisk tiering result updated with custom controls and justification.")
 
-    # Verify update
-    verified_tiering = get_tiering_result(aperture_mind_system.system_id)
-    print(f"\nVerified Controls for '{aperture_mind_system.name}':")
-    for control in verified_tiering.required_controls:
-        print(f"  - {control}")
-else:
-    print(f"Error: ApertureMind Assist (ID: {aperture_mind_assist_id}) not found.")
+#     # Verify update
+#     verified_tiering = get_tiering_result(aperture_mind_system.system_id)
+#     print(f"\nVerified Controls for '{aperture_mind_system.name}':")
+#     for control in verified_tiering.required_controls:
+#         print(f"  - {control}")
+# else:
+#     print(
+#         f"Error: ApertureMind Assist (ID: {aperture_mind_assist_id}) not found.")
 # --- Lifecycle Risk Register Operations ---
 
-def add_lifecycle_risk(risk_entry: LifecycleRiskEntry):
-    """Adds a new lifecycle risk entry for an AI system."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO lifecycle_risks (risk_id, system_id, json, created_at) VALUES (?, ?, ?, ?)",
-            (str(risk_entry.risk_id), str(risk_entry.system_id), risk_entry.json(), risk_entry.created_at)
-        )
-        conn.commit()
-        print(f"Added risk: {risk_entry.risk_statement} (Severity: {risk_entry.severity})")
-    except sqlite3.IntegrityError:
-        print(f"Error: Risk with ID {risk_entry.risk_id} already exists.")
-    finally:
-        conn.close()
+
+def get_risks_for_system(system_id: uuid.UUID, stores=None) -> List[LifecycleRiskEntry]:
+    """Retrieves all lifecycle risks for a specific AI system (thread-safe)."""
+    if stores is None:
+        stores = {'risks': LIFECYCLE_RISKS_STORE}
+    with _risks_lock:
+        return [risk for risk in stores['risks'].values() if risk.system_id == system_id]
 
 
-def get_risks_for_system(system_id: uuid.UUID) -> List[LifecycleRiskEntry]:
-    """Retrieves all lifecycle risks for a specific AI system."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT json FROM lifecycle_risks WHERE system_id = ?", (str(system_id),))
-    rows = cursor.fetchall()
-    conn.close()
-    return [LifecycleRiskEntry.parse_raw(row['json']) for row in rows]
+def update_lifecycle_risk(risk_id: uuid.UUID, updates: Dict[str, Any], stores=None):
+    """Updates an existing lifecycle risk entry (thread-safe)."""
+    if stores is None:
+        stores = {'risks': LIFECYCLE_RISKS_STORE}
+    with _risks_lock:
+        current_risk = stores['risks'].get(risk_id)
+
+        if not current_risk:
+            print(f"Error: Risk with ID {risk_id} not found for update.")
+            return False
+
+        updated_data = current_risk.model_dump()
+        updated_data.update(updates)
+
+        # Recalculate severity if impact or likelihood changes
+        if 'impact' in updates or 'likelihood' in updates:
+            updated_data['impact'] = updates.get('impact', current_risk.impact)
+            updated_data['likelihood'] = updates.get(
+                'likelihood', current_risk.likelihood)
+            updated_data['severity'] = updated_data['impact'] * \
+                updated_data['likelihood']
+        try:
+            updated_risk = LifecycleRiskEntry(**updated_data)
+            stores['risks'][risk_id] = updated_risk
+            return True
+        except ValidationError as e:
+            print(f"Validation error updating risk {risk_id}: {e}")
+            return False
 
 
-def update_lifecycle_risk(risk_id: uuid.UUID, updates: Dict[str, Any]):
-    """Updates an existing lifecycle risk entry."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT json FROM lifecycle_risks WHERE risk_id = ?", (str(risk_id),))
-    row = cursor.fetchone()
+def delete_lifecycle_risk(risk_id: uuid.UUID, stores=None):
+    """Deletes a lifecycle risk entry (thread-safe)."""
+    if stores is None:
+        stores = {'risks': LIFECYCLE_RISKS_STORE}
+    with _risks_lock:
+        if risk_id not in stores['risks']:
+            print(f"Error: Risk with ID {risk_id} not found for deletion.")
+            return False
 
-    if not row:
-        print(f"Error: Risk with ID {risk_id} not found for update.")
-        conn.close()
-        return False
-
-    current_risk = LifecycleRiskEntry.parse_raw(row['json'])
-    updated_data = current_risk.dict()
-    updated_data.update(updates)
-
-    # Recalculate severity if impact or likelihood changes
-    if 'impact' in updates or 'likelihood' in updates:
-        updated_data['impact'] = updates.get('impact', current_risk.impact)
-        updated_data['likelihood'] = updates.get('likelihood', current_risk.likelihood)
-        updated_data['severity'] = updated_data['impact'] * updated_data['likelihood']
-
-    try:
-        updated_risk = LifecycleRiskEntry(**updated_data)
-        cursor.execute(
-            "UPDATE lifecycle_risks SET json = ?, created_at = ? WHERE risk_id = ?",
-            # created_at is updated for simplicity, could be 'updated_at'
-            (updated_risk.json(), datetime.datetime.now(datetime.timezone.utc).isoformat(), str(risk_id))
-        )
-        conn.commit()
-        conn.close()
+        del stores['risks'][risk_id]
         return True
-    except ValidationError as e:
-        print(f"Validation error updating risk {risk_id}: {e}")
-        return False
 
 
-def delete_lifecycle_risk(risk_id: uuid.UUID):
-    """Deletes a lifecycle risk entry."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM lifecycle_risks WHERE risk_id = ?", (str(risk_id),))
-    conn.commit()
-    conn.close()
-
-
-# --- Execution ---
-
-# 1. Add several lifecycle risks for "ApertureMind Assist"
-print(f"--- Adding Lifecycle Risks for '{aperture_mind_system.name}' ---")
-
-# Risk 1: Data Phase - Bias/Fairness
-risk_1_id = uuid.uuid4()
-impact_1 = 4
-likelihood_1 = 3
-add_lifecycle_risk(LifecycleRiskEntry(
-    risk_id=risk_1_id,
-    system_id=aperture_mind_assist_id,
-    lifecycle_phase=LifecyclePhase.DATA,
-    risk_vector=RiskVector.BIAS_FAIRNESS,
-    risk_statement="Training data for LLM agent contains historical biases leading to unfair responses for certain user demographics.",
-    impact=impact_1,
-    likelihood=likelihood_1,
-    severity=impact_1 * likelihood_1, # ADDED: Calculate and pass severity
-    owner_role="AI Ethics Team",
-    mitigation="Implement bias detection tools and data re-weighting."
-))
-
-# Risk 2: Design/Build Phase - Robustness
-risk_2_id = uuid.uuid4()
-impact_2 = 5
-likelihood_2 = 2
-add_lifecycle_risk(LifecycleRiskEntry(
-    risk_id=risk_2_id,
-    system_id=aperture_mind_assist_id,
-    lifecycle_phase=LifecyclePhase.DESIGN_BUILD,
-    risk_vector=RiskVector.ROBUSTNESS,
-    risk_statement="Agent is susceptible to adversarial attacks, leading to misinterpretation of user queries.",
-    impact=impact_2,
-    likelihood=likelihood_2,
-    severity=impact_2 * likelihood_2, # ADDED: Calculate and pass severity
-    owner_role="ML Engineering Team",
-    mitigation="Implement adversarial training and input validation."
-))
-
-# Risk 3: Deployment Phase - Operational
-risk_3_id = uuid.uuid4()
-impact_3 = 3
-likelihood_3 = 4
-add_lifecycle_risk(LifecycleRiskEntry(
-    risk_id=risk_3_id,
-    system_id=aperture_mind_assist_id,
-    lifecycle_phase=LifecyclePhase.DEPLOYMENT,
-    risk_vector=RiskVector.OPERATIONAL,
-    risk_statement="High latency in LLM responses could degrade user experience and service levels.",
-    impact=impact_3,
-    likelihood=likelihood_3,
-    severity=impact_3 * likelihood_3, # ADDED: Calculate and pass severity
-    owner_role="Operations Team",
-    mitigation="Optimize model serving infrastructure and implement caching."
-))
-
-# Risk 4: Operations Phase - Security
-risk_4_id = uuid.uuid4()
-impact_4 = 5
-likelihood_4 = 3
-add_lifecycle_risk(LifecycleRiskEntry(
-    risk_id=risk_4_id,
-    system_id=aperture_mind_assist_id,
-    lifecycle_phase=LifecyclePhase.OPERATIONS,
-    risk_vector=RiskVector.SECURITY,
-    risk_statement="LLM agent may leak sensitive internal information if not properly sandboxed and monitored.",
-    impact=impact_4,
-    likelihood=likelihood_4,
-    severity=impact_4 * likelihood_4, # ADDED: Calculate and pass severity
-    owner_role="Security Team",
-    mitigation="Implement strict access controls and real-time output filtering."
-))
-
-# Risk 5: Validation Phase - Interpretability
-risk_5_id = uuid.uuid4()
-impact_5 = 2
-likelihood_5 = 3
-add_lifecycle_risk(LifecycleRiskEntry(
-    risk_id=risk_5_id,
-    system_id=aperture_mind_assist_id,
-    lifecycle_phase=LifecyclePhase.VALIDATION,
-    risk_vector=RiskVector.INTERPRETABILITY,
-    risk_statement="Lack of interpretability makes debugging difficult and understanding decision rationale opaque.",
-    impact=impact_5,
-    likelihood=likelihood_5,
-    severity=impact_5 * likelihood_5, # ADDED: Calculate and pass severity
-    owner_role="ML Engineering Team",
-    mitigation="Develop and integrate interpretability tools for LLM."
-))
-
-
-# 2. Retrieve and display all risks for ApertureMind Assist
-print(f"\n--- All Lifecycle Risks for '{aperture_mind_system.name}' ---")
-aperture_mind_risks = get_risks_for_system(aperture_mind_assist_id)
-
-for risk in aperture_mind_risks:
-    print(f"Risk ID: {risk.risk_id}")
-    print(f"  Phase: {risk.lifecycle_phase.value}, Vector: {risk.risk_vector.value}")
-    print(f"  Statement: {risk.risk_statement}")
-    print(f"  Impact: {risk.impact}, Likelihood: {risk.likelihood}, Severity: {risk.severity}")
-    print(f"  Owner: {risk.owner_role}, Mitigation: {risk.mitigation}\n")
-
-
-# 3. Example: Update a risk's impact and mitigation
-print(f"--- Updating Risk ID: {risk_1_id} ---")
-update_lifecycle_risk(risk_1_id, {
-    "impact": 5,  # Increasing impact after new assessment
-    "mitigation": "Implemented advanced bias mitigation techniques and external audit."
-})
-
-updated_risk_1 = [r for r in get_risks_for_system(aperture_mind_assist_id) if r.risk_id == risk_1_id][0]
-print(f"Updated Risk Statement: {updated_risk_1.risk_statement}")
-print(f"New Impact: {updated_risk_1.impact}, New Likelihood: {updated_risk_1.likelihood}, New Severity: {updated_risk_1.severity}")
-# --- Risk Matrix Visualization ---
-
-def generate_risk_matrix(system_id: uuid.UUID) -> pd.DataFrame:
+def generate_risk_matrix(system_id: uuid.UUID, stores=None) -> pd.DataFrame:
     """
     Generates a lifecycle x risk vector matrix for a given system,
     showing count of risks and max severity in each cell.
     """
-    risks = get_risks_for_system(system_id)
+    risks = get_risks_for_system(system_id, stores)
     if not risks:
         print(f"No risks found for system ID: {system_id}.")
-        return pd.DataFrame(columns=[rv.value for rv in RiskVector]) # Empty DF
+        # Empty DF
+        return pd.DataFrame(columns=[rv.value for rv in RiskVector])
 
     # Prepare data for DataFrame
     data = []
@@ -718,16 +584,18 @@ def generate_risk_matrix(system_id: uuid.UUID) -> pd.DataFrame:
         matrix_data[phase.value] = {}
         for vector in RiskVector:
             # Filter risks for current phase and vector
-            cell_risks = df[(df['lifecycle_phase'] == phase.value) & (df['risk_vector'] == vector.value)]
+            cell_risks = df[(df['lifecycle_phase'] == phase.value)
+                            & (df['risk_vector'] == vector.value)]
 
             count = len(cell_risks)
             max_severity = cell_risks['severity'].max() if count > 0 else 0
 
             # Store as a tuple (count, max_severity)
-            matrix_data[phase.value][vector.value] = f"Count: {count}, Max Severity: {int(max_severity)}"
+            matrix_data[phase.value][
+                vector.value] = f"Count: {count}, Max Severity: {int(max_severity)}"
 
     # Convert to DataFrame for better display
-    matrix_df = pd.DataFrame(matrix_data).T # Transpose to get phases as rows
+    matrix_df = pd.DataFrame(matrix_data).T  # Transpose to get phases as rows
     matrix_df.index.name = "Lifecycle Phase"
     matrix_df.columns.name = "Risk Vector"
 
@@ -736,30 +604,19 @@ def generate_risk_matrix(system_id: uuid.UUID) -> pd.DataFrame:
     full_vectors = [vector.value for vector in RiskVector]
 
     # Reindex to ensure all phases and vectors are present
-    matrix_df = matrix_df.reindex(index=full_phases, columns=full_vectors, fill_value="Count: 0, Max Severity: 0")
+    matrix_df = matrix_df.reindex(
+        index=full_phases, columns=full_vectors, fill_value="Count: 0, Max Severity: 0")
 
     return matrix_df
 
 # --- Execution ---
 
-# 1. Generate the risk matrix for ApertureMind Assist
-print(f"--- Lifecycle x Risk Vector Matrix for '{aperture_mind_system.name}' ---")
-risk_matrix_df = generate_risk_matrix(aperture_mind_assist_id)
-
 # 2. Display the matrix
 # Using display for better rendering in Jupyter, but print will also work.
-display(risk_matrix_df)
-import os
-import zipfile
-import json
-import hashlib
-import uuid
-import datetime
-import pandas as pd
-from typing import Any  # Explicitly importing Any for type hinting
-from enum import Enum # Import Enum for the custom serializer
+# display(risk_matrix_df)
 
 # --- Helper Functions for Hashing and Serialization ---
+
 
 def compute_sha256(data: bytes) -> str:
     """Computes the SHA-256 hash of provided bytes data."""
@@ -775,7 +632,8 @@ def to_deterministic_json(obj: Any) -> str:
             return str(o)
         if isinstance(o, Enum):
             return o.value
-        raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+        raise TypeError(
+            f"Object of type {o.__class__.__name__} is not JSON serializable")
 
     return json.dumps(
         obj,
@@ -789,7 +647,7 @@ def to_deterministic_json(obj: Any) -> str:
 
 # --- Export and Evidence Package Generation ---
 
-def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1"):
+def generate_evidence_package(run_id: str, team_or_user: str = "AI Product Engineer (Alex)", output_dir_base: str = "reports/case1", stores=None):
     """
     Generates all required artifacts, evidence manifest, and a ZIP package.
     """
@@ -801,11 +659,14 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
 
     # 1. model_inventory.csv
     # Note: get_all_systems() is assumed to be defined globally or imported
-    all_systems_metadata = get_all_systems()
-    systems_df = pd.DataFrame([s.model_dump() for s in all_systems_metadata]) # Use model_dump()
+    all_systems_metadata = get_all_systems(stores)
+    systems_df = pd.DataFrame([s.model_dump()
+                              # Use model_dump()
+                               for s in all_systems_metadata])
 
     # Ensure external_dependencies are pipe-separated string
-    systems_df['external_dependencies'] = systems_df['external_dependencies'].apply(lambda x: '|'.join(x))
+    systems_df['external_dependencies'] = systems_df['external_dependencies'].apply(
+        lambda x: '|'.join(x))
 
     # Select and order columns as per artifact definition
     inventory_columns = [
@@ -815,7 +676,8 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     ]
 
     # Filter columns that actually exist in the DataFrame
-    existing_inventory_columns = [col for col in inventory_columns if col in systems_df.columns]
+    existing_inventory_columns = [
+        col for col in inventory_columns if col in systems_df.columns]
     systems_df = systems_df[existing_inventory_columns]
 
     inventory_path = os.path.join(output_run_dir, "model_inventory.csv")
@@ -824,21 +686,23 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     with open(inventory_path, 'rb') as f:
         hash_val = compute_sha256(f.read())
 
-    artifacts.append({"name": "model_inventory.csv", "path": inventory_path, "sha256": hash_val})
+    artifacts.append({"name": "model_inventory.csv",
+                     "path": inventory_path, "sha256": hash_val})
     artifact_hashes["model_inventory.csv"] = hash_val
     print(f"Generated: {inventory_path}")
 
     # 2. risk_tiering.json
     # Note: get_tiering_result and CONFIG are assumed to be defined globally
     all_tiering_results = [
-        get_tiering_result(s.system_id)
+        get_tiering_result(s.system_id, stores)
         for s in all_systems_metadata
-        if get_tiering_result(s.system_id)
+        if get_tiering_result(s.system_id, stores)
     ]
 
     tiering_data_export = {
         "scoring_version": CONFIG["scoring_version"],
-        "systems": [t.model_dump() for t in all_tiering_results] # Use model_dump()
+        # Use model_dump()
+        "systems": [t.model_dump() for t in all_tiering_results]
     }
 
     tiering_path = os.path.join(output_run_dir, "risk_tiering.json")
@@ -848,7 +712,8 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     with open(tiering_path, 'rb') as f:
         hash_val = compute_sha256(f.read())
 
-    artifacts.append({"name": "risk_tiering.json", "path": tiering_path, "sha256": hash_val})
+    artifacts.append({"name": "risk_tiering.json",
+                     "path": tiering_path, "sha256": hash_val})
     artifact_hashes["risk_tiering.json"] = hash_val
     print(f"Generated: {tiering_path}")
 
@@ -856,11 +721,12 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     lifecycle_risk_map_data = {"systems": []}
     for system in all_systems_metadata:
         # Note: get_risks_for_system is assumed to be defined globally
-        risks_for_system = get_risks_for_system(system.system_id)
+        risks_for_system = get_risks_for_system(system.system_id, stores)
         if risks_for_system:
             lifecycle_risk_map_data["systems"].append({
                 "system_id": str(system.system_id),
-                "risks": [r.model_dump() for r in risks_for_system] # Use model_dump()
+                # Use model_dump()
+                "risks": [r.model_dump() for r in risks_for_system]
             })
 
     risk_map_path = os.path.join(output_run_dir, "lifecycle_risk_map.json")
@@ -870,7 +736,8 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     with open(risk_map_path, 'rb') as f:
         hash_val = compute_sha256(f.read())
 
-    artifacts.append({"name": "lifecycle_risk_map.json", "path": risk_map_path, "sha256": hash_val})
+    artifacts.append({"name": "lifecycle_risk_map.json",
+                     "path": risk_map_path, "sha256": hash_val})
     artifact_hashes["lifecycle_risk_map.json"] = hash_val
     print(f"Generated: {risk_map_path}")
 
@@ -896,15 +763,19 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     summary_content += "## Top Risks by Severity (across all systems)\n"
     all_risks = []
     for system in all_systems_metadata:
-        all_risks.extend(get_risks_for_system(system.system_id))
+        all_risks.extend(get_risks_for_system(system.system_id, stores))
 
     if all_risks:
-        top_risks_df = pd.DataFrame([r.model_dump() for r in all_risks]) # Use model_dump()
-        top_risks_df = top_risks_df.sort_values(by='severity', ascending=False).head(5)
+        top_risks_df = pd.DataFrame([r.model_dump()
+                                    for r in all_risks])  # Use model_dump()
+        top_risks_df = top_risks_df.sort_values(
+            by='severity', ascending=False).head(5)
 
         for _, row in top_risks_df.iterrows():
             system_name = next(
-                (s.name for s in all_systems_metadata if s.system_id == row['system_id']), # Changed uuid.UUID(row['system_id']) to row['system_id']
+                # Changed uuid.UUID(row['system_id']) to row['system_id']
+                (s.name for s in all_systems_metadata if s.system_id ==
+                 row['system_id']),
                 "Unknown System"
             )
             summary_content += f"- **System**: {system_name}\n"
@@ -919,14 +790,16 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     summary_content += "- Ensure all high-tier systems have comprehensive risk register entries.\n"
     summary_content += "- Regularly review justifications for risk tiering decisions.\n"
 
-    executive_summary_path = os.path.join(output_run_dir, "case1_executive_summary.md")
+    executive_summary_path = os.path.join(
+        output_run_dir, "case1_executive_summary.md")
     with open(executive_summary_path, 'w', encoding='utf-8') as f:
         f.write(summary_content)
 
     with open(executive_summary_path, 'rb') as f:
         hash_val = compute_sha256(f.read())
 
-    artifacts.append({"name": "case1_executive_summary.md", "path": executive_summary_path, "sha256": hash_val})
+    artifacts.append({"name": "case1_executive_summary.md",
+                     "path": executive_summary_path, "sha256": hash_val})
     artifact_hashes["case1_executive_summary.md"] = hash_val
     print(f"Generated: {executive_summary_path}")
 
@@ -938,7 +811,8 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     with open(config_snapshot_path, 'rb') as f:
         hash_val = compute_sha256(f.read())
 
-    artifacts.append({"name": "config_snapshot.json", "path": config_snapshot_path, "sha256": hash_val})
+    artifacts.append({"name": "config_snapshot.json",
+                     "path": config_snapshot_path, "sha256": hash_val})
     artifact_hashes["config_snapshot.json"] = hash_val
     print(f"Generated: {config_snapshot_path}")
 
@@ -948,22 +822,26 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
         "systems_count": len(all_systems_metadata),
         "config_snapshot_hash": artifact_hashes["config_snapshot.json"]
     }
-    inputs_hash_val = compute_sha256(to_deterministic_json(inputs_hash_data).encode('utf-8'))
+    inputs_hash_val = compute_sha256(
+        to_deterministic_json(inputs_hash_data).encode('utf-8'))
 
     # Calculate outputs_hash
     sorted_artifact_names = sorted(artifact_hashes.keys())
-    outputs_hash_concat_string = "".join(artifact_hashes[name] for name in sorted_artifact_names)
-    outputs_hash_val = compute_sha256(outputs_hash_concat_string.encode('utf-8'))
+    outputs_hash_concat_string = "".join(
+        artifact_hashes[name] for name in sorted_artifact_names)
+    outputs_hash_val = compute_sha256(
+        outputs_hash_concat_string.encode('utf-8'))
 
     # 6. evidence_manifest.json
     manifest_data = {
         "run_id": run_id,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "team_or_user": "AI Product Engineer (Alex)",
+        "team_or_user": team_or_user,
         "app_version": CONFIG["app_version"],
         "inputs_hash": inputs_hash_val,
         "outputs_hash": outputs_hash_val,
-        "artifacts": sorted(artifacts, key=lambda x: x['name'])  # Sort artifacts by name for determinism
+        # Sort artifacts by name for determinism
+        "artifacts": sorted(artifacts, key=lambda x: x['name'])
     }
 
     manifest_path = os.path.join(output_run_dir, "evidence_manifest.json")
@@ -973,7 +851,8 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     with open(manifest_path, 'rb') as f:
         hash_val = compute_sha256(f.read())
 
-    artifacts.append({"name": "evidence_manifest.json", "path": manifest_path, "sha256": hash_val})
+    artifacts.append({"name": "evidence_manifest.json",
+                     "path": manifest_path, "sha256": hash_val})
     artifact_hashes["evidence_manifest.json"] = hash_val
     print(f"Generated: {manifest_path}")
 
@@ -981,16 +860,11 @@ def generate_evidence_package(run_id: str, output_dir_base: str = "reports/case1
     zip_filename = os.path.join(output_dir_base, f"Case_01_{run_id}.zip")
     with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zf:
         for artifact in artifacts:
-            zf.write(artifact['path'], os.path.relpath(artifact['path'], output_run_dir))  # Add to root of zip
+            zf.write(artifact['path'], os.path.relpath(
+                artifact['path'], output_run_dir))  # Add to root of zip
 
     print(f"\nGenerated ZIP package: {zip_filename}")
     print("\n--- Evidence Manifest Content ---")
     print(json.dumps(manifest_data, indent=2))
 
     return manifest_data
-
-
-# --- Execution ---
-
-current_run_id = str(uuid.uuid4())
-manifest = generate_evidence_package(current_run_id)
