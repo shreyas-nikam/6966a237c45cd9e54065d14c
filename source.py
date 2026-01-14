@@ -743,52 +743,181 @@ def generate_evidence_package(run_id: str, team_or_user: str = "AI Product Engin
 
     # 4. case1_executive_summary.md
     summary_content = f"# Executive Summary for Case 1 (Run ID: {run_id})\n\n"
-    summary_content += f"Generated At: {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n"
-    summary_content += f"App Version: {CONFIG['app_version']}\n\n"
+    summary_content += f"**Generated At:** {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n"
+    summary_content += f"**App Version:** {CONFIG['app_version']}\n"
+    summary_content += f"**Prepared By:** {team_or_user}\n\n"
 
-    summary_content += "## AI System Inventory Summary\n"
-    summary_content += f"Total AI Systems: {len(all_systems_metadata)}\n\n"
+    summary_content += "---\n\n"
+    summary_content += "## Executive Overview\n\n"
+    summary_content += "This report provides a comprehensive assessment of our organization's AI system portfolio, "
+    summary_content += "including risk tiering analysis and lifecycle risk evaluation. The assessment framework applies "
+    summary_content += "a deterministic, rules-based methodology to ensure consistent and auditable risk classification "
+    summary_content += "across all AI systems.\n\n"
 
-    summary_content += "## Risk Tiering Overview\n"
+    summary_content += "The inventory covers systems spanning multiple domains and use cases, from customer-facing "
+    summary_content += "applications to internal automation tools. Each system has been evaluated against standardized "
+    summary_content += "criteria including decision criticality, data sensitivity, automation level, and external dependencies.\n\n"
+
+    summary_content += "## AI System Inventory Summary\n\n"
+    summary_content += f"**Total AI Systems Registered:** {len(all_systems_metadata)}\n\n"
+
+    # Add breakdown by AI type
+    ai_type_counts = pd.Series(
+        [s.ai_type.value for s in all_systems_metadata]).value_counts()
+    summary_content += "**Breakdown by AI Type:**\n"
+    for ai_type, count in ai_type_counts.items():
+        summary_content += f"- {ai_type}: {count} system{'s' if count != 1 else ''}\n"
+    summary_content += "\n"
+
+    # Add breakdown by domain
+    domain_counts = pd.Series(
+        [s.domain for s in all_systems_metadata]).value_counts()
+    summary_content += "**Systems by Business Domain:**\n"
+    for domain, count in domain_counts.items():
+        summary_content += f"- {domain}: {count} system{'s' if count != 1 else ''}\n"
+    summary_content += "\n"
+
+    # Add breakdown by criticality
+    criticality_counts = pd.Series(
+        [s.decision_criticality.value for s in all_systems_metadata]).value_counts()
+    summary_content += "**Decision Criticality Distribution:**\n"
+    for crit, count in criticality_counts.items():
+        summary_content += f"- {crit}: {count} system{'s' if count != 1 else ''}\n"
+    summary_content += "\n"
+
+    summary_content += "## Risk Tiering Overview\n\n"
+    summary_content += "Our risk tiering methodology assigns each AI system to one of three tiers based on a comprehensive "
+    summary_content += "scoring model that evaluates decision criticality, data sensitivity, automation level, AI type, "
+    summary_content += "deployment mode, and external dependencies. Higher tiers trigger more stringent governance controls "
+    summary_content += "and oversight requirements.\n\n"
+
     # Note: RiskTier is assumed to be an Enum defined globally
     tier_counts = pd.Series([t.risk_tier.value for t in all_tiering_results]).value_counts().reindex(
         [tier.value for tier in RiskTier], fill_value=0
     )
 
-    summary_content += "Tier Distribution:\n"
+    summary_content += "**Tier Distribution:**\n"
     for tier, count in tier_counts.items():
-        summary_content += f"- {tier}: {count} systems\n"
+        summary_content += f"- **{tier}** (Highest Risk): {count} system{'s' if count != 1 else ''}\n"
     summary_content += "\n"
 
-    summary_content += "## Top Risks by Severity (across all systems)\n"
+    # Add average score information
+    if all_tiering_results:
+        avg_score = sum(t.total_score for t in all_tiering_results) / \
+            len(all_tiering_results)
+        summary_content += f"**Average Risk Score Across All Systems:** {avg_score:.1f}\n\n"
+
+    # List systems by tier with more detail
+    for tier in [RiskTier.TIER_1, RiskTier.TIER_2, RiskTier.TIER_3]:
+        tier_systems = [s for s in all_systems_metadata if get_tiering_result(s.system_id, stores)
+                        and get_tiering_result(s.system_id, stores).risk_tier == tier]
+        if tier_systems:
+            summary_content += f"**{tier.value} Systems:**\n"
+            for sys in tier_systems:
+                tiering = get_tiering_result(sys.system_id, stores)
+                summary_content += f"- {sys.name} (Score: {tiering.total_score}, Domain: {sys.domain}, "
+                summary_content += f"Type: {sys.ai_type.value})\n"
+            summary_content += "\n"
+
+    summary_content += "## Lifecycle Risk Analysis\n\n"
     all_risks = []
     for system in all_systems_metadata:
         all_risks.extend(get_risks_for_system(system.system_id, stores))
 
     if all_risks:
-        top_risks_df = pd.DataFrame([r.model_dump()
-                                    for r in all_risks])  # Use model_dump()
+        summary_content += f"**Total Risks Identified:** {len(all_risks)}\n\n"
+
+        # Breakdown by lifecycle phase
+        phase_counts = pd.Series(
+            [r.lifecycle_phase.value for r in all_risks]).value_counts()
+        summary_content += "**Risks by Lifecycle Phase:**\n"
+        for phase, count in phase_counts.items():
+            summary_content += f"- {phase}: {count} risk{'s' if count != 1 else ''}\n"
+        summary_content += "\n"
+
+        # Breakdown by risk vector
+        vector_counts = pd.Series(
+            [r.risk_vector.value for r in all_risks]).value_counts()
+        summary_content += "**Risks by Vector:**\n"
+        for vector, count in vector_counts.items():
+            summary_content += f"- {vector}: {count} risk{'s' if count != 1 else ''}\n"
+        summary_content += "\n"
+
+        # Severity distribution
+        severity_distribution = pd.Series(
+            [r.severity for r in all_risks]).describe()
+        summary_content += f"**Severity Statistics:**\n"
+        summary_content += f"- Mean Severity: {severity_distribution['mean']:.2f}\n"
+        summary_content += f"- Maximum Severity: {int(severity_distribution['max'])}\n"
+        summary_content += f"- High Severity Risks (≥15): {len([r for r in all_risks if r.severity >= 15])}\n\n"
+    else:
+        summary_content += "**Total Risks Identified:** 0\n\n"
+        summary_content += "*Note: No lifecycle risks have been registered yet. Risk register population is recommended "
+        summary_content += "for all systems, particularly those in TIER_1.*\n\n"
+
+    summary_content += "## Top Risks by Severity (Across All Systems)\n\n"
+    if all_risks:
+        summary_content += "The following represents the highest-severity risks identified across our AI system portfolio. "
+        summary_content += "These risks require immediate attention and should be prioritized in mitigation planning.\n\n"
+
+        top_risks_df = pd.DataFrame([r.model_dump() for r in all_risks])
         top_risks_df = top_risks_df.sort_values(
             by='severity', ascending=False).head(5)
 
-        for _, row in top_risks_df.iterrows():
+        for idx, (_, row) in enumerate(top_risks_df.iterrows(), 1):
             system_name = next(
-                # Changed uuid.UUID(row['system_id']) to row['system_id']
                 (s.name for s in all_systems_metadata if s.system_id ==
                  row['system_id']),
                 "Unknown System"
             )
-            summary_content += f"- **System**: {system_name}\n"
-            summary_content += f"  **Phase/Vector**: {row['lifecycle_phase']}/{row['risk_vector']}\n"
-            summary_content += f"  **Severity**: {row['severity']} (Impact: {row['impact']}, Likelihood: {row['likelihood']})\n"
-            summary_content += f"  **Statement**: {row['risk_statement']}\n\n"
+            summary_content += f"### {idx}. {system_name}\n"
+            summary_content += f"**Lifecycle Phase:** {row['lifecycle_phase']} | "
+            summary_content += f"**Risk Vector:** {row['risk_vector']}\n\n"
+            summary_content += f"**Severity Score:** {row['severity']} (Impact: {row['impact']}/5, Likelihood: {row['likelihood']}/5)\n\n"
+            summary_content += f"**Risk Statement:** {row['risk_statement']}\n\n"
+            if row['mitigation']:
+                summary_content += f"**Mitigation Strategy:** {row['mitigation']}\n\n"
+            summary_content += f"**Owner:** {row['owner_role']}\n\n"
+            summary_content += "---\n\n"
     else:
-        summary_content += "No risks registered.\n\n"
+        summary_content += "No risks have been registered in the system. It is strongly recommended to populate the "
+        summary_content += "lifecycle risk register for all AI systems, especially those classified as TIER_1.\n\n"
 
     # Notes on missing justifications/coverage (if any)
-    summary_content += "## Notes & Recommendations\n"
-    summary_content += "- Ensure all high-tier systems have comprehensive risk register entries.\n"
-    summary_content += "- Regularly review justifications for risk tiering decisions.\n"
+    summary_content += "## Key Findings & Recommendations\n\n"
+
+    # Count systems with/without risks
+    systems_with_risks = len(set(r.system_id for r in all_risks))
+    systems_without_risks = len(all_systems_metadata) - systems_with_risks
+
+    if systems_without_risks > 0:
+        summary_content += f"- **Action Required:** {systems_without_risks} system{'s' if systems_without_risks != 1 else ''} "
+        summary_content += "currently lack lifecycle risk register entries. Risk assessment should be completed for all systems.\n"
+
+    tier1_count = tier_counts.get('TIER_1', 0)
+    if tier1_count > 0:
+        summary_content += f"- **High-Risk Systems:** {tier1_count} TIER_1 system{'s' if tier1_count != 1 else ''} "
+        summary_content += "require comprehensive governance controls including independent validation, full documentation, "
+        summary_content += "security testing, and continuous monitoring.\n"
+
+    # Check for external dependencies
+    systems_with_external_deps = len(
+        [s for s in all_systems_metadata if s.external_dependencies])
+    if systems_with_external_deps > 0:
+        summary_content += f"- **Vendor Risk:** {systems_with_external_deps} system{'s' if systems_with_external_deps != 1 else ''} "
+        summary_content += "rely on external dependencies. Vendor risk assessments and contingency plans should be maintained.\n"
+
+    summary_content += "- **Regular Review:** Risk tiering and lifecycle risk assessments should be reviewed quarterly or "
+    summary_content += "whenever significant system changes occur.\n"
+    summary_content += "- **Control Implementation:** Verify that all required controls for each risk tier are implemented "
+    summary_content += "and functioning as intended.\n"
+    summary_content += "- **Evidence Collection:** Maintain comprehensive evidence of control effectiveness for audit and "
+    summary_content += "compliance purposes.\n\n"
+
+    summary_content += "---\n\n"
+    summary_content += "*This executive summary is auto-generated based on the current state of the AI system inventory "
+    summary_content += f"and risk register as of the generation timestamp. For detailed technical information, refer to the "
+    summary_content += "accompanying artifacts: model_inventory.csv, risk_tiering.json, and lifecycle_risk_map.json.*\n"
 
     executive_summary_path = os.path.join(
         output_run_dir, "case1_executive_summary.md")
