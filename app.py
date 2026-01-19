@@ -269,7 +269,7 @@ if st.session_state['current_page'] == "Inventory Management":
 
     # Create tabs for different inventory operations
     tab1, tab2, tab3, tab4 = st.tabs(
-        ["📋 View", "➕ Add", "✏️ Edit", "🗑️ Delete"])
+        ["View", "Add", "Edit", "Delete"])
 
     # TAB 1: VIEW
     with tab1:
@@ -348,22 +348,22 @@ if st.session_state['current_page'] == "Inventory Management":
                 errors = []
 
                 if not f_name or not f_name.strip():
-                    errors.append("❌ System name is required.")
+                    errors.append("System name is required.")
                 elif len(f_name.strip()) < 3:
                     errors.append(
-                        "❌ System name must be at least 3 characters long.")
+                        "System name must be at least 3 characters long.")
 
                 if not f_domain or not f_domain.strip():
-                    errors.append("❌ Domain is required.")
+                    errors.append("Domain is required.")
 
                 if not f_owner or not f_owner.strip():
-                    errors.append("❌ Owner role is required.")
+                    errors.append("Owner role is required.")
 
                 if not f_desc or not f_desc.strip():
-                    errors.append("❌ Description is required.")
+                    errors.append("Description is required.")
                 elif len(f_desc.strip()) < 10:
                     errors.append(
-                        "❌ Description must be at least 10 characters long.")
+                        "Description must be at least 10 characters long.")
 
                 # Display all validation errors
                 if errors:
@@ -390,14 +390,14 @@ if st.session_state['current_page'] == "Inventory Management":
                         stores = get_user_stores()
                         add_system(new_sys, stores)
                         st.session_state[
-                            'success_message'] = f"✅ Success! AI System '{f_name.strip()}' has been added to the inventory."
-                        st.session_state['info_message'] = f"📊 System ID: {new_sys.system_id} | Domain: {f_domain.strip()} | Owner: {f_owner.strip()}"
+                            'success_message'] = f"Success! AI System '{f_name.strip()}' has been added to the inventory."
+                        st.session_state['info_message'] = f"System ID: {new_sys.system_id} | Domain: {f_domain.strip()} | Owner: {f_owner.strip()}"
                         refresh_systems()
                         refresh_tiering_result()
                         refresh_lifecycle_risks()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error adding system: {e}")
+                        st.error(f"Error adding system: {e}")
 
     # TAB 3: EDIT
     with tab3:
@@ -487,7 +487,7 @@ if st.session_state['current_page'] == "Inventory Management":
 
                             stores = get_user_stores()
                             update_system(sys_edit.system_id, sys_data, stores)
-                            st.session_state['success_message'] = f"✅ System '{f_name}' updated successfully!"
+                            st.session_state['success_message'] = f"System '{f_name}' updated successfully!"
                             refresh_systems()
                             refresh_tiering_result()
                             refresh_lifecycle_risks()
@@ -508,7 +508,7 @@ if st.session_state['current_page'] == "Inventory Management":
             st.info("No systems available to delete.")
         else:
             st.warning(
-                "⚠️ Warning: Deleting a system will permanently remove it and all associated data.")
+                "Warning: Deleting a system will permanently remove it and all associated data.")
 
             # Create system selector
             sys_opts = [str(s.system_id) for s in st.session_state['systems']]
@@ -542,7 +542,7 @@ if st.session_state['current_page'] == "Inventory Management":
                 st.write(f"**AI Type:** {sys_to_delete.ai_type.value}")
                 st.markdown("---")
 
-                if st.button("🗑️ Confirm Delete", type="primary", key="confirm_delete_btn"):
+                if st.button("Confirm Delete", type="primary", key="confirm_delete_btn"):
                     system_name = sys_to_delete.name
                     try:
                         stores = get_user_stores()
@@ -552,13 +552,13 @@ if st.session_state['current_page'] == "Inventory Management":
                         if st.session_state['selected_system_id'] == sel_sys_delete:
                             st.session_state['selected_system_id'] = None
 
-                        st.session_state['success_message'] = f"✅ System '{system_name}' deleted successfully."
+                        st.session_state['success_message'] = f"System '{system_name}' deleted successfully."
                         refresh_systems()
                         refresh_tiering_result()
                         refresh_lifecycle_risks()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Failed to delete system: {e}")
+                        st.error(f"Failed to delete system: {e}")
 
 # Page: Risk Tiering
 elif st.session_state['current_page'] == "Risk Tiering":
@@ -597,19 +597,21 @@ elif st.session_state['current_page'] == "Risk Tiering":
             if st.session_state['tiering_result'] and str(st.session_state['tiering_result'].system_id) == str(curr_sys.system_id):
                 res = st.session_state['tiering_result']
                 st.subheader(
-                    f"Result: {res.risk_tier.value} (Total Score: {res.total_score})")
+                    f"Result: {res.risk_tier.value.replace('_', ' ')} (Total Score: {res.total_score})")
 
                 bd_df = pd.DataFrame(res.score_breakdown.items(), columns=[
                                      "Dimension", "Points"])
+                bd_df['Dimension'] = bd_df['Dimension'].str.replace(
+                    '_', ' ').str.title()
                 st.dataframe(bd_df, use_container_width=True, hide_index=True)
 
                 st.subheader("Controls & Justification")
                 with st.form("tier_edit"):
                     just = st.text_area(
-                        "Justification for this tier assignment:", value=res.justification)
+                        "Justification for this tier assignment:", placeholder=res.justification)
                     ctrls_str = "\n".join(res.required_controls)
                     ctrls_edit = st.text_area(
-                        "Required Controls (one per line):", value=ctrls_str)
+                        "Required Controls (one per line):", placeholder=ctrls_str)
 
                     if st.form_submit_button("Save Changes to Tiering Result"):
                         res_data = res.model_dump()  # Pydantic v2 change: .dict() -> .model_dump()
@@ -624,7 +626,7 @@ elif st.session_state['current_page'] == "Risk Tiering":
                         stores = get_user_stores()
                         save_tiering_result(new_res, stores)
                         st.session_state['tiering_result'] = new_res
-                        st.session_state['success_message'] = "✅ Tiering result updated successfully!"
+                        st.session_state['success_message'] = "Tiering result updated successfully!"
                         st.rerun()
 
                     # Display success messages
@@ -657,7 +659,7 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
 
         # Create tabs for different risk operations
         tab1, tab2, tab3, tab4, tab5 = st.tabs(
-            ["📋 View", "➕ Add", "✏️ Edit", "🗑️ Delete", "📊 Matrix"])
+            ["View", "Add", "Edit", "Delete", "Matrix"])
 
         # TAB 1: VIEW
         with tab1:
@@ -719,9 +721,9 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
 
                 if submitted:
                     if not n_stmt.strip():
-                        st.error("❌ Risk statement is required.")
+                        st.error("Risk statement is required.")
                     elif not n_own.strip():
-                        st.error("❌ Risk owner role is required.")
+                        st.error("Risk owner role is required.")
                     else:
                         try:
                             r_data = {
@@ -739,11 +741,11 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
                             new_r = LifecycleRiskEntry(**r_data)
                             add_lifecycle_risk(new_r)
                             st.session_state[
-                                'success_message'] = f"✅ New risk added successfully! Severity: {new_r.severity}"
+                                'success_message'] = f"New risk added successfully! Severity: {new_r.severity}"
                             refresh_lifecycle_risks()
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error adding risk: {e}")
+                            st.error(f"Error adding risk: {e}")
 
         # TAB 3: EDIT
         with tab3:
@@ -841,11 +843,11 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
                                 }
 
                                 update_lifecycle_risk(r_edit.risk_id, r_data)
-                                st.session_state['success_message'] = "✅ Risk updated successfully!"
+                                st.session_state['success_message'] = "Risk updated successfully!"
                                 refresh_lifecycle_risks()
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Error updating risk: {e}")
+                                st.error(f"Error updating risk: {e}")
 
         # TAB 4: DELETE
         with tab4:
@@ -860,7 +862,7 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
                 st.info("No risks available to delete.")
             else:
                 st.warning(
-                    "⚠️ Warning: Deleting a risk will permanently remove it from the register.")
+                    "Warning: Deleting a risk will permanently remove it from the register.")
 
                 r_data = []
                 for r in st.session_state['lifecycle_risks']:
@@ -903,14 +905,14 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
                         f"**Severity:** {risk_to_delete.severity} (Impact: {risk_to_delete.impact}, Likelihood: {risk_to_delete.likelihood})")
                     st.markdown("---")
 
-                    if st.button("🗑️ Confirm Delete", type="primary", key="confirm_delete_risk_btn"):
+                    if st.button("Confirm Delete", type="primary", key="confirm_delete_risk_btn"):
                         try:
                             delete_lifecycle_risk(uuid.UUID(sel_r_id_delete))
-                            st.session_state['success_message'] = "✅ Risk deleted successfully."
+                            st.session_state['success_message'] = "Risk deleted successfully."
                             refresh_lifecycle_risks()
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Failed to delete risk: {e}")
+                            st.error(f"Failed to delete risk: {e}")
 
         # TAB 5: MATRIX
         with tab5:
@@ -923,7 +925,7 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
                 if not matrix.empty:
                     st.dataframe(matrix, use_container_width=True)
                     st.info(
-                        "ℹ️ This matrix shows the count and maximum severity of risks for each lifecycle phase and risk vector combination.")
+                        "This matrix shows the count and maximum severity of risks for each lifecycle phase and risk vector combination.")
                 else:
                     st.info(
                         "No risks documented to generate the matrix.")
@@ -935,7 +937,6 @@ elif st.session_state['current_page'] == "Lifecycle Risk Register":
 elif st.session_state['current_page'] == "Exports & Evidence":
     st.header("Generate Traceable Evidence Package")
     st.markdown(f"As Alex, prepare a formal evidence package with SHA-256 hashes for all AI systems and their associated risk data. This provides an immutable record for audit and compliance.")
-    st.markdown(r"$$\text{EvidenceHash} = \text{SHA256}(\text{Artifacts})$$")
 
     if not st.session_state['systems']:
         st.warning(
@@ -962,12 +963,12 @@ elif st.session_state['current_page'] == "Exports & Evidence":
                             temp_dir, f"Case_01_{run_id}.zip")
 
                         st.success(
-                            f"✅ Evidence package successfully generated!")
+                            f"Evidence package successfully generated!")
                         # Provide a download button
                         with open(zip_path, "rb") as f:
                             zip_data = f.read()
                             st.download_button(
-                                label="📥 Download Evidence Package (ZIP)",
+                                label="Download Evidence Package (ZIP)",
                                 data=zip_data,
                                 file_name=f"Case_01_{run_id}.zip",
                                 mime="application/zip"
