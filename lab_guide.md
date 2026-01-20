@@ -47,7 +47,7 @@ Your work will create transparency where none exists, implement objective risk c
 
 **Step 3: Document Lifecycle Risks**
 - Navigate to **Lifecycle Risk Register** and add specific risks across all phases. 
-- For the** Credit Approval System**, document a data bias risk with Impact=5 and Likelihood=4. 
+- For the **Credit Approval System**, document a data bias risk with Impact=5 and Likelihood=4. 
 - For the **Fraud Monitor**, add a performance risk about false positives during seasonal shopping spikes. 
 - For the **Chatbot**, document a privacy risk involving PII exposure. Add compliance and security risks to build comprehensive risk profiles.
 
@@ -63,7 +63,7 @@ Your work will create transparency where none exists, implement objective risk c
 **Step 5: Generate Audit Evidence**
 
 - Navigate to **Exports and Evidence** and generate a complete evidence package including system inventory JSON files, risk tiering results, lifecycle risk maps, model inventory CSV, executive summary, and evidence manifest with SHA-256 hashes. 
-- Review the executive summary showing systems breakdown by tier, risk coverage metrics, and compliance readiness. - 
+- Review the executive summary showing systems breakdown by tier, risk coverage metrics, and compliance readiness. 
 - Examine the cryptographic hashes that prove integrity.
 
 *Key Question: Why are immutable audit trails with cryptographic verification essential for regulated industries?*
@@ -87,3 +87,5 @@ Your work will create transparency where none exists, implement objective risk c
 ### Takeaway
 
 You have operationalized a complete AI risk management system that transforms governance from aspiration into executable process. By establishing inventory transparency, implementing deterministic risk classification, documenting lifecycle risks systematically, and generating cryptographically verified evidence, you have positioned Aperture Analytics to scale AI responsibly while satisfying investors, regulators, and auditors that the company takes AI governance seriously.
+
+[Download the handout here.](https://qucoursify.s3.us-east-1.amazonaws.com/gmu/APEX_Case_Study.pdf)

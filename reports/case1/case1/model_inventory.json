@@ -1,0 +1,23 @@
+{
+  "systems": [
+    {
+      "ai_type": "ML",
+      "automation_level": "HUMAN_APPROVAL",
+      "data_sensitivity": "REGULATED_PII",
+      "decision_criticality": "HIGH",
+      "deployment_mode": "HUMAN_IN_LOOP",
+      "description": "ML-powered consumer credit decisioning system for personal loans, auto loans, and credit cards with real-time scoring, fair lending compliance layer, and SHAP-based adverse action explanations. Replaces legacy rules-based system to reduce decision time from 4.2 minutes to <30 seconds while maintaining regulatory compliance.",
+      "domain": "Finance - Consumer Lending",
+      "external_dependencies": [
+        "Experian API",
+        "TransUnion API",
+        "AWS SageMaker",
+        "SHAP Library"
+      ],
+      "name": "APEX Credit Decision System",
+      "owner_role": "Marcus Williams, VP Data Science & Analytics",
+      "system_id": "550e8400-e29b-41d4-a716-446655440001",
+      "updated_at": "2026-01-20T16:49:14.567391+00:00"
+    }
+  ]
+}

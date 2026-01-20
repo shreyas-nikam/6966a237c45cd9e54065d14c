@@ -165,7 +165,12 @@ class LifecycleRiskEntry(BaseModel):
     severity: int = 0  # Will be calculated: impact * likelihood
     mitigation: str = ""
     owner_role: str
-    evidence_links: List[str] = Field(default_factory=list)
+    evidence_type: str = ""  # e.g., DESIGN_DOC, TEST_RESULT, ASSUMPTION, TBD
+    evidence_reference: str = ""  # Reference to specific document or artifact
+    evidence_links: List[str] = Field(
+        default_factory=list)  # Additional evidence links
+    last_reviewed: str = Field(default_factory=lambda: datetime.datetime.now(
+        datetime.timezone.utc).isoformat())
     created_at: str = Field(default_factory=lambda: datetime.datetime.now(
         datetime.timezone.utc).isoformat())
 
@@ -193,7 +198,7 @@ def create_tables():
     pass
 
 
-print("Environment setup complete: Libraries installed, Pydantic schemas defined, and thread-safe in-memory storage initialized.")
+# print("Environment setup complete: Libraries installed, Pydantic schemas defined, and thread-safe in-memory storage initialized.")
 # --- Inventory CRUD Operations ---
 
 
@@ -246,18 +251,18 @@ def load_sample_systems_data(filepath: str = "data/sample_case1_systems.json", s
     # with open(filepath, 'r') as f:
     #    sample_data = json.load(f)
 
-    print(f"--- Loading {len(sample_data)} sample systems ---")
+    # print(f"--- Loading {len(sample_data)} sample systems ---")
     for item in sample_data:
         try:
             # Ensure system_id is a UUID object before passing to Pydantic
             item['system_id'] = uuid.UUID(item['system_id'])
             system = SystemMetadata(**item)
             add_system(system, stores)
-            print(f"Loaded: {system.name}")
+            # print(f"Loaded: {system.name}")
         except ValidationError as e:
             print(
                 f"Validation error loading sample system {item.get('name', 'Unknown')}: {e}")
-    print("-------------------------------------------\n")
+    # print("-------------------------------------------\n")
 
 
 def add_system(system_metadata: SystemMetadata, stores=None):
@@ -657,38 +662,25 @@ def generate_evidence_package(run_id: str, team_or_user: str = "AI Product Engin
     artifacts = []
     artifact_hashes = {}
 
-    # 1. model_inventory.csv
+    # 1. model_inventory.json
     # Note: get_all_systems() is assumed to be defined globally or imported
     all_systems_metadata = get_all_systems(stores)
-    systems_df = pd.DataFrame([s.model_dump()
-                              # Use model_dump()
-                               for s in all_systems_metadata])
 
-    # Ensure external_dependencies are pipe-separated string
-    systems_df['external_dependencies'] = systems_df['external_dependencies'].apply(
-        lambda x: '|'.join(x))
+    # Export systems as JSON array
+    inventory_data = {
+        "systems": [s.model_dump() for s in all_systems_metadata]
+    }
 
-    # Select and order columns as per artifact definition
-    inventory_columns = [
-        'system_id', 'name', 'domain', 'ai_type', 'owner_role',
-        'decision_criticality', 'automation_level', 'data_sensitivity',
-        'deployment_mode', 'external_dependencies', 'updated_at'
-    ]
-
-    # Filter columns that actually exist in the DataFrame
-    existing_inventory_columns = [
-        col for col in inventory_columns if col in systems_df.columns]
-    systems_df = systems_df[existing_inventory_columns]
-
-    inventory_path = os.path.join(output_run_dir, "model_inventory.csv")
-    systems_df.to_csv(inventory_path, index=False)
+    inventory_path = os.path.join(output_run_dir, "model_inventory.json")
+    with open(inventory_path, 'w', encoding='utf-8') as f:
+        f.write(to_deterministic_json(inventory_data))
 
     with open(inventory_path, 'rb') as f:
         hash_val = compute_sha256(f.read())
 
-    artifacts.append({"name": "model_inventory.csv",
+    artifacts.append({"name": "model_inventory.json",
                      "path": inventory_path, "sha256": hash_val})
-    artifact_hashes["model_inventory.csv"] = hash_val
+    artifact_hashes["model_inventory.json"] = hash_val
     print(f"Generated: {inventory_path}")
 
     # 2. risk_tiering.json
@@ -917,7 +909,7 @@ def generate_evidence_package(run_id: str, team_or_user: str = "AI Product Engin
     summary_content += "---\n\n"
     summary_content += "*This executive summary is auto-generated based on the current state of the AI system inventory "
     summary_content += f"and risk register as of the generation timestamp. For detailed technical information, refer to the "
-    summary_content += "accompanying artifacts: model_inventory.csv, risk_tiering.json, and lifecycle_risk_map.json.*\n"
+    summary_content += "accompanying artifacts: model_inventory.json, risk_tiering.json, and lifecycle_risk_map.json.*\n"
 
     executive_summary_path = os.path.join(
         output_run_dir, "case1_executive_summary.md")
