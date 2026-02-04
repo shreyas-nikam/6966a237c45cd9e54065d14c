@@ -78,15 +78,18 @@ Deploy an ML-based credit decisioning system to:
 
 ```json
 {
-  "system_id": "APEX-CREDIT-2026-001",
-  "system_name": "APEX Credit Decision System",
-  "business_domain": "finance",
-  "intended_use": "Automate consumer credit approval decisions for personal loans, auto loans, and credit cards with real-time scoring and risk assessment",
-  "ai_system_type": "ML",
-  "automation_level": "HUMAN_IN_LOOP",
-  "business_owner": "Sarah Chen, SVP Consumer Lending",
-  "technical_owner": "Marcus Williams, VP Data Science & Analytics",
-  "date_created": "2026-01-20"
+  "system_id": "550e8400-e29b-41d4-a716-446655440001",
+  "name": "APEX Credit Decision System",
+  "domain": "Finance",
+  "description": "Automate consumer credit approval decisions for personal loans, auto loans, and credit cards with real-time ML scoring, fair lending compliance layer, and SHAP-based adverse action explanations",
+  "ai_type": "ML",
+  "owner_role": "Sarah Chen, SVP Consumer Lending",
+  "deployment_mode": "HUMAN_IN_LOOP",
+  "decision_criticality": "HIGH",
+  "automation_level": "HUMAN_APPROVAL",
+  "data_sensitivity": "REGULATED_PII",
+  "external_dependencies": ["Experian API", "TransUnion API", "Core Banking System"],
+  "updated_at": "2026-01-20T00:00:00+00:00"
 }
 ```
 
@@ -284,14 +287,14 @@ This section provides detailed risk scenarios for each lifecycle stage. Students
 
 ---
 
-### 6.1 DESIGN Stage Risks
+### 6.1 DESIGN_BUILD Phase Risks
 
 #### RISK-DESIGN-001: Proxy Variable Discrimination (CRITICAL)
 
 **Description:**  
 The model uses "zip code density" and "distance to nearest branch" as features. Analysis shows these features correlate strongly with race and ethnicity (r = 0.42 and r = 0.38 respectively) due to historical residential segregation patterns.
 
-**Risk Category:** BIAS
+**Risk Vector:** BIAS_FAIRNESS
 
 **Impact Analysis:**
 - Regulatory: Fair lending violation, potential enforcement action
@@ -312,7 +315,7 @@ The model uses "zip code density" and "distance to nearest branch" as features. 
 **Description:**  
 Initial scope was personal loans only. Business stakeholders have requested expansion to auto loans and HELOCs during design phase, each with different risk profiles and regulatory requirements (HELOC triggers Fair Housing Act).
 
-**Risk Category:** GOVERNANCE
+**Risk Vector:** COMPLIANCE
 
 **Impact Score:** 4 (Major)  
 **Likelihood Score:** 3 (Possible)  
@@ -328,7 +331,7 @@ Initial scope was personal loans only. Business stakeholders have requested expa
 **Description:**  
 Design workshops did not include representation from compliance, model validation, or operations. Requirements may miss critical regulatory and operational constraints.
 
-**Risk Category:** GOVERNANCE
+**Risk Vector:** COMPLIANCE
 
 **Impact Score:** 3 (Moderate)  
 **Likelihood Score:** 3 (Possible)  
@@ -339,14 +342,14 @@ Design workshops did not include representation from compliance, model validatio
 
 ---
 
-### 6.2 BUILD Stage Risks
+### 6.2 DATA Phase Risks
 
 #### RISK-BUILD-001: Historical Bias in Training Labels (CRITICAL)
 
 **Description:**  
 Training data includes 5 years of decisions from the legacy rules-based system. Analysis indicates the legacy system had a 12% lower approval rate for applicants in majority-minority zip codes, even after controlling for creditworthiness factors. The ML model may learn and amplify this historical discrimination.
 
-**Risk Category:** BIAS
+**Risk Vector:** BIAS_FAIRNESS
 
 **Impact Score:** 5 (Catastrophic)  
 **Likelihood Score:** 4 (Likely — data reflects legacy decisions)  
@@ -362,7 +365,7 @@ Training data includes 5 years of decisions from the legacy rules-based system. 
 **Description:**  
 Training data from 2020-2022 includes anomalous patterns due to forbearance programs, stimulus payments, and economic disruption. Models trained on this data may not generalize to normal economic conditions.
 
-**Risk Category:** DATA
+**Risk Vector:** FUNCTIONAL
 
 **Impact Score:** 4 (Major)  
 **Likelihood Score:** 4 (Likely — data is included)  
@@ -394,7 +397,7 @@ Feature engineering pipeline inadvertently includes post-application data (accou
 **Description:**  
 Applicants with limited credit history ("thin-file" consumers) represent only 8% of training data but 22% of target population. Model may perform poorly or unfairly disadvantage young adults, recent immigrants, and unbanked populations.
 
-**Risk Category:** DATA
+**Risk Vector:** BIAS_FAIRNESS
 
 **Impact Score:** 4 (Major)  
 **Likelihood Score:** 4 (Likely)  
@@ -421,7 +424,7 @@ Model relies on credit bureau data from Experian and TransUnion. Bureau data qua
 
 ---
 
-### 6.3 VALIDATE Stage Risks
+### 6.3 VALIDATION Phase Risks
 
 #### RISK-VALIDATE-001: Subgroup Performance Blindspot (CRITICAL)
 
@@ -434,7 +437,7 @@ Initial validation achieved 94.2% overall accuracy (AUC = 0.89). However, strati
 
 Validation team initially signed off on overall metrics without subgroup analysis.
 
-**Risk Category:** BIAS
+**Risk Vector:** BIAS_FAIRNESS
 
 **Impact Score:** 5 (Catastrophic)  
 **Likelihood Score:** 4 (Likely — gaps confirmed)  
@@ -450,7 +453,7 @@ Validation team initially signed off on overall metrics without subgroup analysi
 **Description:**  
 Due to resource constraints, two members of the validation team previously worked on model development. SR 11-7 requires validation to be performed by staff independent from development.
 
-**Risk Category:** GOVERNANCE
+**Risk Vector:** COMPLIANCE
 
 **Impact Score:** 4 (Major)  
 **Likelihood Score:** 4 (Likely — staffing confirmed)  
@@ -482,7 +485,7 @@ Validation tested model under normal conditions but did not include stress scena
 **Description:**  
 SHAP-based explanations are technically accurate but not meaningful to consumers. Example adverse action reason: "Feature_427 contributed -0.23 to score." Regulatory requirement is for explanations consumers can understand and act upon.
 
-**Risk Category:** GOVERNANCE
+**Risk Vector:** INTERPRETABILITY
 
 **Impact Score:** 3 (Moderate)  
 **Likelihood Score:** 4 (Likely)  
@@ -493,7 +496,7 @@ SHAP-based explanations are technically accurate but not meaningful to consumers
 
 ---
 
-### 6.4 DEPLOY Stage Risks
+### 6.4 DEPLOYMENT Phase Risks
 
 #### RISK-DEPLOY-001: A/B Test Statistical Validity (MEDIUM)
 
@@ -543,7 +546,7 @@ Deployment plan includes rollback procedure to legacy system, but procedure has 
 
 ---
 
-### 6.5 OPERATE Stage Risks
+### 6.5 OPERATIONS Phase Risks
 
 #### RISK-OPERATE-001: Economic Drift Undetected (CRITICAL)
 
@@ -570,7 +573,7 @@ Underwriters may systematically override model decisions based on factors the mo
 
 Per SR 11-7: "If the rate of overrides is high, or if the override process consistently improves model performance, it is often a sign that the underlying model needs revision."
 
-**Risk Category:** GOVERNANCE
+**Risk Vector:** COMPLIANCE
 
 **Impact Score:** 3 (Moderate)  
 **Likelihood Score:** 4 (Likely)  
@@ -586,7 +589,7 @@ Per SR 11-7: "If the rate of overrides is high, or if the override process consi
 **Description:**  
 Approved applicants become training data for future models. If model is biased against certain groups, those groups receive fewer approvals, generating less positive training data, reinforcing the bias in future iterations.
 
-**Risk Category:** BIAS
+**Risk Vector:** BIAS_FAIRNESS
 
 **Impact Score:** 4 (Major)  
 **Likelihood Score:** 3 (Possible)  
@@ -602,7 +605,7 @@ Approved applicants become training data for future models. If model is biased a
 **Description:**  
 No documented incident response procedure exists for AI-specific incidents (e.g., model producing discriminatory outcomes, drift detection alert, adversarial attack). IT incident response procedures do not cover AI/ML scenarios.
 
-**Risk Category:** GOVERNANCE
+**Risk Vector:** COMPLIANCE
 
 **Impact Score:** 3 (Moderate)  
 **Likelihood Score:** 3 (Possible)  
@@ -622,14 +625,17 @@ No documented incident response procedure exists for AI-specific incidents (e.g.
 ```json
 {
   "system_id": "550e8400-e29b-41d4-a716-446655440001",
-  "system_name": "APEX Credit Decision System",
-  "business_domain": "finance",
-  "intended_use": "Automate consumer credit approval decisions for personal loans, auto loans, and credit cards with real-time ML scoring, fair lending compliance layer, and SHAP-based adverse action explanations",
-  "ai_system_type": "ML",
-  "automation_level": "HUMAN_IN_LOOP",
-  "business_owner": "Sarah Chen, SVP Consumer Lending",
-  "technical_owner": "Marcus Williams, VP Data Science & Analytics",
-  "date_created": "2026-01-20"
+  "name": "APEX Credit Decision System",
+  "description": "Automate consumer credit approval decisions for personal loans, auto loans, and credit cards with real-time ML scoring, fair lending compliance layer, and SHAP-based adverse action explanations",
+  "domain": "Finance",
+  "ai_type": "ML",
+  "owner_role": "Sarah Chen, SVP Consumer Lending",
+  "deployment_mode": "HUMAN_IN_LOOP",
+  "decision_criticality": "HIGH",
+  "automation_level": "HUMAN_APPROVAL",
+  "data_sensitivity": "REGULATED_PII",
+  "external_dependencies": ["Experian API", "TransUnion API", "Core Banking System"],
+  "updated_at": "2026-01-20T00:00:00+00:00"
 }
 ```
 
@@ -641,116 +647,140 @@ No documented incident response procedure exists for AI-specific incidents (e.g.
 {
   "risks": [
     {
-      "risk_id": "RISK-DESIGN-001",
+      "risk_id": "11111111-1111-1111-1111-111111111111",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "DESIGN",
-      "risk_category": "BIAS",
-      "risk_description": "Zip code density and branch distance features correlate strongly with race/ethnicity (r=0.42, r=0.38) due to historical residential segregation. May constitute proxy discrimination under ECOA.",
-      "impact_score": 5,
-      "likelihood_score": 4,
-      "severity_score": 20,
-      "risk_owner": "David Park, Chief Compliance Officer",
+      "lifecycle_phase": "DESIGN_BUILD",
+      "risk_vector": "BIAS_FAIRNESS",
+      "risk_statement": "Zip code density and branch distance features correlate strongly with race/ethnicity (r=0.42, r=0.38) due to historical residential segregation. May constitute proxy discrimination under ECOA.",
+      "impact": 5,
+      "likelihood": 4,
+      "severity": 20,
+      "mitigation": "Remove geographic proxy features and conduct fair lending impact assessment before deployment.",
+      "owner_role": "David Park, Chief Compliance Officer",
       "evidence_type": "DESIGN_DOC",
       "evidence_reference": "Feature Correlation Analysis v2.3; Fair Lending Impact Assessment pending",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     },
     {
-      "risk_id": "RISK-BUILD-001",
+      "risk_id": "22222222-2222-2222-2222-222222222222",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "BUILD",
-      "risk_category": "BIAS",
-      "risk_description": "Training data (2019-2024) reflects legacy rules-based decisions with 12% lower approval rate for majority-minority zip codes. ML model may learn and amplify historical discrimination patterns.",
-      "impact_score": 5,
-      "likelihood_score": 4,
-      "severity_score": 20,
-      "risk_owner": "Marcus Williams, VP Data Science",
+      "lifecycle_phase": "DATA",
+      "risk_vector": "BIAS_FAIRNESS",
+      "risk_statement": "Training data (2019-2024) reflects legacy rules-based decisions with 12% lower approval rate for majority-minority zip codes. ML model may learn and amplify historical discrimination patterns.",
+      "impact": 5,
+      "likelihood": 4,
+      "severity": 20,
+      "mitigation": "Conduct bias audit on training data, apply fairness constraints during training, and monitor for disparate impact.",
+      "owner_role": "Marcus Williams, VP Data Science",
       "evidence_type": "TEST_RESULT",
       "evidence_reference": "Historical Disparate Impact Analysis v1.2",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     },
     {
-      "risk_id": "RISK-BUILD-002",
+      "risk_id": "33333333-3333-3333-3333-333333333333",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "BUILD",
-      "risk_category": "DATA",
-      "risk_description": "COVID-19 period (2020-2022) data includes anomalous forbearance, stimulus, and default patterns that may not generalize to normal economic conditions.",
-      "impact_score": 4,
-      "likelihood_score": 4,
-      "severity_score": 16,
-      "risk_owner": "Marcus Williams, VP Data Science",
+      "lifecycle_phase": "DATA",
+      "risk_vector": "FUNCTIONAL",
+      "risk_statement": "COVID-19 period (2020-2022) data includes anomalous forbearance, stimulus, and default patterns that may not generalize to normal economic conditions.",
+      "impact": 4,
+      "likelihood": 4,
+      "severity": 16,
+      "mitigation": "Weight or exclude COVID-era data, perform temporal validation splits, and implement drift detection for economic regime shifts.",
+      "owner_role": "Marcus Williams, VP Data Science",
       "evidence_type": "TEST_RESULT",
       "evidence_reference": "Data Quality Assessment Report Section 4.2",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     },
     {
-      "risk_id": "RISK-VALIDATE-001",
+      "risk_id": "44444444-4444-4444-4444-444444444444",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "VALIDATE",
-      "risk_category": "BIAS",
-      "risk_description": "Overall accuracy 94.2% masks significant subgroup disparities: Hispanic 86.3%, Black 84.7%, Age 18-25 81.2%. Initial validation signed off without stratified analysis.",
-      "impact_score": 5,
-      "likelihood_score": 4,
-      "severity_score": 20,
-      "risk_owner": "Linda Tran, Head of Model Validation",
+      "lifecycle_phase": "VALIDATION",
+      "risk_vector": "BIAS_FAIRNESS",
+      "risk_statement": "Overall accuracy 94.2% masks significant subgroup disparities: Hispanic 86.3%, Black 84.7%, Age 18-25 81.2%. Initial validation signed off without stratified analysis.",
+      "impact": 5,
+      "likelihood": 4,
+      "severity": 20,
+      "mitigation": "Mandate stratified performance analysis for all protected classes before validation approval. Set minimum performance thresholds per subgroup.",
+      "owner_role": "Linda Tran, Head of Model Validation",
       "evidence_type": "TEST_RESULT",
       "evidence_reference": "Model Validation Report v1.0, Appendix C",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     },
     {
-      "risk_id": "RISK-VALIDATE-002",
+      "risk_id": "55555555-5555-5555-5555-555555555555",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "VALIDATE",
-      "risk_category": "GOVERNANCE",
-      "risk_description": "Two validation team members previously worked on model development, compromising SR 11-7 independence requirement.",
-      "impact_score": 4,
-      "likelihood_score": 4,
-      "severity_score": 16,
-      "risk_owner": "Janet Morrison, Chief Risk Officer",
+      "lifecycle_phase": "VALIDATION",
+      "risk_vector": "COMPLIANCE",
+      "risk_statement": "Two validation team members previously worked on model development, compromising SR 11-7 independence requirement.",
+      "impact": 4,
+      "likelihood": 4,
+      "severity": 16,
+      "mitigation": "Replace validation team members with independent staff who have no prior involvement in model development.",
+      "owner_role": "Janet Morrison, Chief Risk Officer",
       "evidence_type": "ASSUMPTION",
       "evidence_reference": "Model Validation Team Roster",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     },
     {
-      "risk_id": "RISK-DEPLOY-001",
+      "risk_id": "66666666-6666-6666-6666-666666666666",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "DEPLOY",
-      "risk_category": "OPERATIONAL",
-      "risk_description": "Integration with legacy core banking via batch interface causes 4-hour recording delays during high-volume periods, creating customer-facing inconsistencies.",
-      "impact_score": 4,
-      "likelihood_score": 3,
-      "severity_score": 12,
-      "risk_owner": "IT Operations Lead",
+      "lifecycle_phase": "DEPLOYMENT",
+      "risk_vector": "OPERATIONAL",
+      "risk_statement": "Integration with legacy core banking via batch interface causes 4-hour recording delays during high-volume periods, creating customer-facing inconsistencies.",
+      "impact": 4,
+      "likelihood": 3,
+      "severity": 12,
+      "mitigation": "Implement real-time API integration with core banking system or add queuing buffer to handle peak loads.",
+      "owner_role": "IT Operations Lead",
       "evidence_type": "TEST_RESULT",
       "evidence_reference": "Integration Test Report — Core Banking",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     },
     {
-      "risk_id": "RISK-OPERATE-001",
+      "risk_id": "77777777-7777-7777-7777-777777777777",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "OPERATE",
-      "risk_category": "OPERATIONAL",
-      "risk_description": "No robust drift detection mechanism to identify when economic conditions diverge from training data distribution. Model could degrade silently for months.",
-      "impact_score": 5,
-      "likelihood_score": 4,
-      "severity_score": 20,
-      "risk_owner": "Marcus Williams, VP Data Science",
+      "lifecycle_phase": "OPERATIONS",
+      "risk_vector": "OPERATIONAL",
+      "risk_statement": "No robust drift detection mechanism to identify when economic conditions diverge from training data distribution. Model could degrade silently for months.",
+      "impact": 5,
+      "likelihood": 4,
+      "severity": 20,
+      "mitigation": "Implement automated drift detection for input features and model performance, with alerting thresholds and retraining triggers.",
+      "owner_role": "Marcus Williams, VP Data Science",
       "evidence_type": "ASSUMPTION",
       "evidence_reference": "Drift Monitoring Requirements (in development)",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     },
     {
-      "risk_id": "RISK-OPERATE-002",
+      "risk_id": "88888888-8888-8888-8888-888888888888",
       "system_id": "550e8400-e29b-41d4-a716-446655440001",
-      "lifecycle_stage": "OPERATE",
-      "risk_category": "BIAS",
-      "risk_description": "Feedback loop risk: Biased approvals generate biased training data, reinforcing discrimination in future model iterations.",
-      "impact_score": 4,
-      "likelihood_score": 3,
-      "severity_score": 12,
-      "risk_owner": "David Park, Chief Compliance Officer",
+      "lifecycle_phase": "OPERATIONS",
+      "risk_vector": "BIAS_FAIRNESS",
+      "risk_statement": "Feedback loop risk: Biased approvals generate biased training data, reinforcing discrimination in future model iterations.",
+      "impact": 4,
+      "likelihood": 3,
+      "severity": 12,
+      "mitigation": "Implement fairness monitoring in production, use counterfactual outcomes for retraining, and maintain diverse training data sources.",
+      "owner_role": "David Park, Chief Compliance Officer",
       "evidence_type": "ASSUMPTION",
       "evidence_reference": "Retraining Strategy Document",
-      "last_reviewed": "2026-01-20"
+      "evidence_links": [],
+      "last_reviewed": "2026-01-20T00:00:00+00:00",
+      "created_at": "2026-01-20T00:00:00+00:00"
     }
   ]
 }

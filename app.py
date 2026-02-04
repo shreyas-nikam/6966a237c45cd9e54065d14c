@@ -327,23 +327,28 @@ if st.session_state['current_page'] == "Inventory Management":
                 f_owner = st.text_input(
                     "Owner Role *", value="", placeholder="e.g., Data Science Team")
                 ai_opts = [e.value for e in AIType]
-                f_ai_type = st.selectbox("AI Type", options=ai_opts, index=0)
+                f_ai_type = st.selectbox("AI Type", options=ai_opts, index=0,
+                    help="Risk Points: AGENT=5, LLM=4, ML=3")
                 dm_opts = [e.value for e in DeploymentMode]
                 f_deploy = st.selectbox(
-                    "Deployment Mode", options=dm_opts, index=0)
+                    "Deployment Mode", options=dm_opts, index=0,
+                    help="Risk Points: REAL_TIME=4, BATCH=2, HUMAN_IN_LOOP=2, INTERNAL_ONLY=1")
 
             with c2:
                 f_desc = st.text_area(
                     "Description *", value="", placeholder="Describe the AI system's purpose and functionality", height=100)
                 dc_opts = [e.value for e in DecisionCriticality]
                 f_crit = st.selectbox(
-                    "Decision Criticality", options=dc_opts, index=0)
+                    "Decision Criticality", options=dc_opts, index=0,
+                    help="Risk Points: HIGH=5, MEDIUM=3, LOW=1")
                 al_opts = [e.value for e in AutomationLevel]
                 f_auto = st.selectbox("Automation Level",
-                                      options=al_opts, index=0)
+                                      options=al_opts, index=0,
+                                      help="Risk Points: FULLY_AUTOMATED=5, HUMAN_APPROVAL=3, ADVISORY=1")
                 ds_opts = [e.value for e in DataSensitivity]
                 f_sens = st.selectbox("Data Sensitivity",
-                                      options=ds_opts, index=0)
+                                      options=ds_opts, index=0,
+                                      help="Risk Points: REGULATED_PII=5, CONFIDENTIAL=4, INTERNAL=2, PUBLIC=1")
 
             f_deps_str = st.text_input(
                 "External Dependencies (comma-separated)", value="", placeholder="e.g., OpenAI API, AWS S3")
@@ -791,7 +796,16 @@ elif st.session_state['current_page'] == "Risk Tiering":
             st.markdown(r"$$S = \sum_{d \in D} \text{points}(d)$$")
             st.markdown(
                 f"The total score (S) is compared to predefined thresholds to assign the risk tier. A higher score indicates higher inherent risk.")
+            st.markdown("""
+**Tiering Logic:**
 
+- **Tier 1 (High Risk):** S ≥ 22
+- **Tier 2 (Medium Risk):** 15 ≤ S < 22
+- **Tier 3 (Low Risk):** S < 15
+""")
+            
+            
+            
             if st.button("Compute Risk Tier"):
                 res = calculate_risk_tier(curr_sys)
                 stores = get_user_stores()
